@@ -1,5 +1,4 @@
 import numpy as np
-import time
 
 
 class Swarmalator:
@@ -9,6 +8,8 @@ class Swarmalator:
         agents: int,
         K: int,
         J: int,
+        phase: np.ndarray,
+        natural_frequencies: np.ndarray,
         chiral: bool = False,
         target: np.ndarray = None,
     ):
@@ -23,6 +24,10 @@ class Swarmalator:
             Phase coupling coefficient
         J: int
             Spatial-phase interaction coeffi- cient
+        phase: np.ndarray
+            Initial phase of the agents
+        natural_frequencies: np.ndarray
+            Natural frequencies of the agents
         chiral: bool
             Whether to include chiral contributions
         target: np.ndarray
@@ -42,7 +47,7 @@ class Swarmalator:
         self._inherent_velocities = np.zeros((self._agents, 2))
 
         # Agents have a natural frequency
-        self._natural_frequencies = np.zeros(self._agents)
+        self._natural_frequencies = natural_frequencies
 
         # Agents might have a chiral contribution
         self._chiral = chiral
@@ -59,7 +64,7 @@ class Swarmalator:
         self._velocity = np.zeros((self._agents, 2))
 
         # All agents start with a phase
-        self._phase = np.linspace(0, 2 * np.pi, self._agents, endpoint=False)
+        self._phase = phase
         self._delta_phase = np.zeros(self._agents)
 
     def update(self, positions):

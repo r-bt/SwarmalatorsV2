@@ -1,9 +1,13 @@
 import sys
+import random
 
-# setting path
-sys.path.append("../swarmalators")
+# Get current directory
+cur_dir = sys.path[0]
 
-import swarmalators.swarmalator as sw
+# Add the parent directory to the path
+sys.path.append(cur_dir + "/../")
+
+from swarmalators import swarmalator as sw
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -12,11 +16,19 @@ import colorsys
 
 np.random.seed(0)  # Debug have the same random numbers
 
-agent_count = 30
+agent_count = 100
 
 positions = np.random.uniform(low=-1, high=1, size=(agent_count, 2))
 
-swarm = sw.Swarmalator(agent_count, 0.5, 1)
+natural_frequencies = np.ones(agent_count)
+half = agent_count // 2
+natural_frequencies[:half] = 1
+natural_frequencies[half:] = -1
+phase = np.linspace(0, 2 * np.pi, agent_count, endpoint=False)
+
+random.shuffle(phase)
+
+swarm = sw.Swarmalator(agent_count, 1, -0.5, phase, natural_frequencies, chiral=True)
 
 
 def angles_to_rgb(angles_rad):
@@ -51,10 +63,6 @@ def plot_swarm():
         global start
         global count
 
-        if count == 1000:
-            print("Finished!")
-            return
-
         # # Update the model
         swarm.update(positions)
         dt = (time.time() - now) * time_multipler
@@ -72,6 +80,12 @@ def plot_swarm():
 
         ax.set_xlim(-3, 3)
         ax.set_ylim(-3, 3)
+
+        # Draw square from (-2,-2) to (2,2)
+        ax.plot([-2, 2], [2, 2], color="black")
+        ax.plot([2, 2], [2, -2], color="black")
+        ax.plot([2, -2], [-2, -2], color="black")
+        ax.plot([-2, -2], [-2, 2], color="black")
 
         now = time.time()
 

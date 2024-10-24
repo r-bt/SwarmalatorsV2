@@ -3,6 +3,9 @@ import time
 
 
 class nRFSwarmalator:
+    """
+    Controls interfacing with the nRFSwarmalator code running on the Nordic board
+    """
 
     def __init__(self, spheros: list[str], port):
         self.port = port

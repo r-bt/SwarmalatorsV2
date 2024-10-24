@@ -1,27 +1,15 @@
 import cv2
-from ._video_stream import VideoStream, CameraSpec
+from ._video_stream import VideoStream
 import multiprocessing as mp
+
 # from ._sort import Sort
 from .euclid_tracker import EuclideanDistTracker
 import numpy as np
 import time
 import atexit
+import os
 
 MAX_LEN = 1
-
-
-def find_all_contours(img):
-    """
-    Find all contours in an image
-
-    Args:
-        img: The image to find contours in
-
-    Returns:
-        A list of contours
-    """
-    contours, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    return contours
 
 
 class SpheroTracker:
@@ -34,7 +22,7 @@ class SpheroTracker:
 
     def __init__(
         self,
-        device: CameraSpec,
+        device: int,
         spheros: int,
         tracking: mp.Event,
         positions,
@@ -48,7 +36,9 @@ class SpheroTracker:
         self._lock = lock
         self._velocities = velocities
 
-        self._stream = VideoStream(device).start()
+        settings_path = self._get_settings_path()
+
+        self._stream = VideoStream(device, settings_path).start()
 
         # Get scale factors
         self._set_scale_factor()
@@ -60,7 +50,7 @@ class SpheroTracker:
 
         # Setup and initalize tracker
         self._euclid_tracker = EuclideanDistTracker()
-        self._initalize_tracker(init_positions)
+        self._euclid_tracker.init(init_positions)
 
         self._init_recording()
 
@@ -74,9 +64,11 @@ class SpheroTracker:
         """
         # Set up video writer using FFmpeg
         current_time = time.strftime("%Y%m%d%H%M%S")
-        output_file = f"output_{current_time}.mp4"
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # Change the codec as needed
-        out = cv2.VideoWriter(output_file, fourcc, 20.0, (self._width, self._height))  # Adjust parameters as needed
+        output_file = f"outputs/output_{current_time}.mp4"
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Change the codec as needed
+        out = cv2.VideoWriter(
+            output_file, fourcc, 20.0, (self._width, self._height)
+        )  # Adjust parameters as needed
         self.out = out
 
         # Setup cleanup function
@@ -92,7 +84,7 @@ class SpheroTracker:
         frame = self._stream.read()
         while frame is None:
             frame = self._stream.read()
-            
+
         self._height, self._width = frame.shape[:2]
 
         self._scale_factor = 8.0 / max(self._width, self._height)
@@ -105,32 +97,12 @@ class SpheroTracker:
             if frame is None:
                 continue
 
-            thresh = self._process_frame(frame)
+            dets, _ = self._detect_objects(frame)
 
-            dets = self._detect_objects(thresh)
-
-            if (len(dets) == self._spheros):
+            if len(dets) == self._spheros:
                 count += 1
             else:
                 print("Only found {} spheros".format(len(dets)))
-
-    def _initalize_tracker(self, init_positions):
-        if len(init_positions) > 0:
-            self._euclid_tracker.init(init_positions)
-        else:
-            while True:
-                frame = self._stream.read()
-
-                if frame is None:
-                    continue
-
-                thresh = self._process_frame(frame)
-
-                dets = self._detect_objects(thresh)
-
-                if (len(dets) == self._spheros):
-                    self._euclid_tracker.init(dets)
-                    break
 
     def _track_objects(self):
         """
@@ -144,11 +116,8 @@ class SpheroTracker:
             frame = self._stream.read()
             self.out.write(frame)
 
-            thresh = self._process_frame(frame)
+            dets, (thresh, display_frame) = self._detect_objects(frame)
 
-            dets = self._detect_objects(thresh)
-
-            # active_tracks = self._sort_tracker.update(dets)
             active_tracks = []
             try:
                 active_tracks = self._euclid_tracker.update(dets)
@@ -157,8 +126,18 @@ class SpheroTracker:
                 self._stream.stop()  # Stop the video stream
                 self.out.release()
                 print(e)
+
+                for point in self._euclid_tracker.center_points.values():
+                    cv2.circle(
+                        display_frame,
+                        (int(point[0]), int(point[1])),
+                        5,
+                        (0, 0, 255),
+                        -1,
+                    )
+
                 while True:
-                    cv2.imshow("Frame", frame)
+                    cv2.imshow("Frame", display_frame)
                     cv2.imshow("Thresh", thresh)
 
                     if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -166,14 +145,12 @@ class SpheroTracker:
 
             pos = self._update_positions(active_tracks)
 
-            # sorted_indices = np.argsort(pos[:, 2])
-
             with self._lock:
                 if len(self._positions) >= MAX_LEN:
                     self._positions.pop(0)
                 self._positions.append(pos)
 
-            for index, (obj_id, track) in enumerate(active_tracks):
+            for index, (sphero_id, track) in enumerate(active_tracks):
                 if index < len(self._velocities):
                     velocity = self._velocities[index]
 
@@ -182,29 +159,39 @@ class SpheroTracker:
                     heading_radians = np.radians(velocity[1])
 
                     # Calculate the endpoint of the arrow based on velocity and arrow_length
-                    arrow_end = (int(track[0] + arrow_length * np.cos(heading_radians)),
-                                int(track[1] + arrow_length * np.sin(-heading_radians)))
-
-                    # Draw the arrow on the frame
-                    cv2.arrowedLine(frame, (int(track[0]), int(track[1])), arrow_end, (36, 255, 12), 5)
-
-                    cv2.putText(
-                        frame,
-                        "Speed: {}, Heading: {}".format(round(velocity[0], 2), round(velocity[1], 2)),
-                        (int(track[0]), int(track[1])),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.9,
-                        (36, 255, 12),
-                        2,
+                    arrow_end = (
+                        int(track[0] + arrow_length * np.cos(heading_radians)),
+                        int(track[1] + arrow_length * np.sin(-heading_radians)),
                     )
 
-            # We can't handle losing Spheros yet (fix in the future)    
+                    # Draw the arrow on the frame
+                    cv2.arrowedLine(
+                        display_frame,
+                        (int(track[0]), int(track[1])),
+                        arrow_end,
+                        (36, 255, 12),
+                        5,
+                    )
 
-            if (len(active_tracks) < self._spheros):
+                    # Put the id of the Sphero on the frame
+                    cv2.putText(
+                        display_frame,
+                        str(sphero_id),
+                        (int(track[0]), int(track[1])),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1,
+                        (255, 0, 0),
+                        2,
+                        cv2.LINE_AA,
+                    )
+
+            # We can't handle losing Spheros yet (fix in the future)
+
+            if len(active_tracks) < self._spheros:
                 print("Not enough spheros detected")
                 print([len(active_tracks), len(dets)])
                 while True:
-                    cv2.imshow("Frame", frame)
+                    cv2.imshow("Frame", display_frame)
                     cv2.imshow("Thresh", thresh)
 
                     if cv2.waitKey(1) & 0xFF == ord("q"):  # Press 'q' to exit the loop
@@ -212,17 +199,26 @@ class SpheroTracker:
 
             # Calculate the fps
             frame_time = time.time()
-            
-            fps = 1/(frame_time-prev_frame_time) 
-            prev_frame_time = frame_time 
+
+            fps = 1 / (frame_time - prev_frame_time)
+            prev_frame_time = frame_time
 
             fps = str(int(fps))
 
-            cv2.putText(frame, fps, (7, 70), cv2.FONT_HERSHEY_SIMPLEX, 3, (100, 255, 0), 3, cv2.LINE_AA)
+            cv2.putText(
+                display_frame,
+                fps,
+                (7, 70),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                3,
+                (100, 255, 0),
+                3,
+                cv2.LINE_AA,
+            )
 
             # Display the image
-            
-            cv2.imshow("Frame", frame)
+
+            cv2.imshow("Frame", display_frame)
             cv2.imshow("Thresh", thresh)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):  # Press 'q' to exit the loop
@@ -241,20 +237,53 @@ class SpheroTracker:
             frame: The frame to detect Spheros in
 
         Returns:
-            A list of detections in form [x, y, w, h]
+            A list of detections in form [x, y]
         """
-        contours = find_all_contours(frame)
-        contours = sorted(contours, key=cv2.contourArea, reverse=True)
 
-        endIndex = min(self._spheros, len(contours))
+        display_frame = frame.copy()
 
-        dets = []
-        for contour in contours[:endIndex]:
-            x, y, w, h = cv2.boundingRect(contour)
-            det = np.array([x, y, w, h])
-            dets.append(det)
+        # Find the black canvas mat
+        canvas_approx = self._find_canvas(frame)
+        cv2.polylines(display_frame, [canvas_approx], True, (0, 255, 0), 2)
 
-        return np.array(dets)
+        # Apply Otsu's binarization
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        ret, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        # Crop to just the canvas
+        mask = np.zeros_like(thresh)
+        cv2.fillPoly(mask, [canvas_approx], (255, 255, 255))
+        thresh = cv2.bitwise_and(thresh, mask)
+
+        # Noise removal
+        thresh = cv2.erode(thresh, None, iterations=2)
+        thresh = cv2.dilate(thresh, None, iterations=1)
+
+        # Downsample the image first
+        thresh = cv2.resize(
+            thresh, (0, 0), fx=0.25, fy=0.25
+        )  # Downsample the image by 4x
+
+        # Cluster white regions into 15 clusters
+        centers, labels = self._cluster_spheros(
+            thresh,
+            num_clusters=self._spheros,
+        )
+
+        # Get the centers
+        dets = [(int(center[1] * 4), int(center[0] * 4)) for center in centers]
+
+        # Draw the centers
+        for det in dets:
+            cv2.circle(
+                display_frame,
+                det,
+                5,
+                (0, 255, 0),
+                -1,
+            )
+
+        return dets, (thresh, display_frame)
 
     def _update_positions(self, tracks):
         """
@@ -267,9 +296,7 @@ class SpheroTracker:
         pos = np.empty((len(tracks), 3))
 
         for i, track in enumerate(tracks):
-            center_x, center_y = self._normalize_coordinates(
-                track[1][0], track[1][1]
-            )
+            center_x, center_y = self._normalize_coordinates(track[1][0], track[1][1])
 
             pos[i] = np.array([center_x, center_y, track[0]])
 
@@ -279,11 +306,75 @@ class SpheroTracker:
         normalized_x = self._scale_factor * (x - self._width / 2)
         normalized_y = self._scale_factor * (y - self._height / 2)
         return normalized_x, -normalized_y
-    
+
     def _unnormalize_coordinates(self, x, y):
         unnormalized_x = (x / self._scale_factor) + self._width / 2
         unnormalized_y = (-y / self._scale_factor) + self._height / 2
         return unnormalized_x, unnormalized_y
+
+    def _get_settings_path(self):
+        """
+        Gets the path to tracker_camera.json
+
+        Returns:
+            The path to direction_camera.json
+        """
+
+        current_file_path = os.path.abspath(__file__)
+        current_directory = os.path.dirname(current_file_path)
+
+        return os.path.join(current_directory, "tracker_camera.json")
+
+    def _find_canvas(self, frame):
+        """
+        Given a frame, find the canvas
+
+        Args:
+            frame: The frame to find the canvas in
+
+        Returns:
+            The canvas
+        """
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        _, thresh_2 = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+        contours, _ = cv2.findContours(
+            thresh_2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        canvas_contour = max(contours, key=cv2.contourArea)
+        epsilon = 0.02 * cv2.arcLength(canvas_contour, True)
+        canvas_approx = cv2.approxPolyDP(canvas_contour, epsilon, True)
+        return canvas_approx
+
+    def _cluster_spheros(self, thresh, num_clusters=15):
+        """
+        Uses k-means clustering to cluster the Spheros
+
+        Args:
+            thresh: The thresholded image
+            num_clusters: The number of clusters to use
+
+        Returns:
+            Centers: The centers of the clusters
+            Labels: The labels of the clusters
+        """
+
+        # Get white pixel coordinates
+        white_pixels = np.column_stack(np.where(thresh > 0))
+
+        # Perform k-means clustering
+
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 300, 0.05)
+
+        _, labels, centers = cv2.kmeans(
+            white_pixels.astype(np.float32),
+            num_clusters,
+            None,
+            criteria,
+            10,
+            cv2.KMEANS_PP_CENTERS,
+        )
+
+        return centers, labels
 
     """
     Static methods
@@ -291,7 +382,13 @@ class SpheroTracker:
 
     @staticmethod
     def start_tracking(
-        device: CameraSpec, spheros: int, tracking: mp.Event, positions, lock, velocities, init_positions: list = []
+        device: int,
+        spheros: int,
+        tracking: mp.Event,
+        positions,
+        lock,
+        velocities,
+        init_positions: list = [],
     ):
         """
         Start tracking spheros
@@ -302,28 +399,6 @@ class SpheroTracker:
         )
 
         sphero_tracker._track_objects()
-
-    @staticmethod
-    def _process_frame(frame):
-        """
-        Process frame
-
-        Args:
-            frame: The frame to process
-
-        Returns:
-            The processed frame
-        """
-        processed_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        processed_frame = cv2.GaussianBlur(processed_frame, (21, 21), 0)
-
-        # processed_frame = cv2.adaptiveThr eshold(processed_frame, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-        processed_frame = cv2.threshold(processed_frame, 60, 255, cv2.THRESH_BINARY)[1]
-
-        processed_frame = cv2.erode(processed_frame, None, iterations=4)
-        processed_frame = cv2.dilate(processed_frame, None, iterations=2)
-
-        return processed_frame
 
 
 class Tracker:
@@ -341,7 +416,9 @@ class Tracker:
         self._pos_lock = self._manager.Lock()
         self._velocities = self._manager.list()
 
-    def start_tracking_objects(self, device: CameraSpec, spheros: int, init_positions: list = []):
+    def start_tracking_objects(
+        self, device: int, spheros: int, init_positions: list = []
+    ):
         """
         Start tracking process
         """
@@ -369,7 +446,7 @@ class Tracker:
                 return pos
             except:
                 return None
-            
+
     def set_velocities(self, velocities):
         with self._pos_lock:
             for i, velocity in enumerate(velocities):

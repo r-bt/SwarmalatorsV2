@@ -1,34 +1,23 @@
 import cv2
-from ._video_stream import VideoStream, CameraSpec
-from .util._c930e import CameraControls
+from ._video_stream import VideoStream
 import numpy as np
+import os
 
 CONTOUR_DISTANCE_THRESHOLD = 350
+
 
 class DirectionFinder:
     """
     DirectionFinder. Identify the direction of a single sphero
     """
 
-    MAX_HISTORY_LEN = 40
+    def __init__(self, device: int):
+        # Get path to the settings file
 
-    DIRECTION_CAMERA_CONTROLS = CameraControls(
-        brightness=100,
-        contrast=128,
-        saturation=255,
-        sharpness=255,
-        zoom=102,
-        gain=64,
-        exposure_time=312,
-        auto_focus=1,
-        focus=0,
-    )
+        settings_path = self._get_settings_path()
 
-    def __init__(self, device: CameraSpec):
         # Get camera on OpenCV
-        self.stream = VideoStream(device).start()
-        # Store history of frames for direction finding
-        self.history = []
+        self.stream = VideoStream(device, settings_path).start()
 
     def __del__(self):
         self.stream.stop()
@@ -41,56 +30,67 @@ class DirectionFinder:
         Find the direction of a single sphero
 
         We find the direction from the x-axis counter clockwise
+
+        Returns:
+            Angle: The angle of the direction in degrees
+            Center: The center of the sphero
         """
-        frame = self._get_frame()
+        frame = self.stream.read()
 
         if frame is None:
+            print("Failed to read frame")
             return None
 
-        # Find the largest contour
-        contours = self._find_all_contours(frame)
+        # First find the black mat
 
-        if len(contours) == 0:
+        canvas_approx = self._find_black_mat(frame)
+
+        # Find the blue light emitted from Sphero's front LED
+
+        lower_blue = np.array([100, 150, 100])
+        upper_blue = np.array([140, 255, 255])
+
+        blue_led_contour = self._find_colored_led(
+            frame, canvas_approx, lower_blue, upper_blue
+        )
+
+        if blue_led_contour is None:
+            print("Failed to find blue LED")
             return None
 
-        contours = sorted(contours, key=lambda x: cv2.contourArea(x), reverse=True)
+        # Find the green light emitted from the Sphero's back LED
 
-        # Get largest contour (this is the base)
-        contour_base = contours[0]
+        lower_green = np.array([0, 100, 50])
+        upper_green = np.array([100, 255, 255])
 
-        # Get the center of the base contour
-        M_base = cv2.moments(contour_base)
-        cX_base = M_base["m10"] / M_base["m00"]
-        cY_base = M_base["m01"] / M_base["m00"]
+        green_led_contour = self._find_colored_led(
+            frame, canvas_approx, lower_green, upper_green
+        )
 
-        # Find the largest contour within a certain distance (this is the head)
+        if green_led_contour is None:
+            print("Failed to find green LED")
 
-        for contour in contours[1:]:
-            # Get the center of the head contour
-            M_head = cv2.moments(contour)
-
-            if M_head["m00"] == 0:
-                M_head["m00"] = 0.1
-
-            cX_head = M_head["m10"] / M_head["m00"]
-            cY_head = M_head["m01"] / M_head["m00"]
-            # Check distance between this and the base contour
-            if (cX_head - cX_base)**2 + (cY_head - cY_base)**2 < CONTOUR_DISTANCE_THRESHOLD:
-                break
-        else:
-            print("Failed to find head contour")
-            
             while True:
-                frame2 = self.stream.read()
-                cv2.imshow("Frame", frame2)
-                cv2.imshow("Processed Frame", frame)
+                cv2.imshow("Frame", frame)
 
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
+
             return None
 
-        # Calculate the direction vector from the base to the head
-        direction_vector = np.array([cX_head - cX_base, cY_base - cY_head])
+        # Get center of the blue and green LED contours
+
+        M_blue = cv2.moments(blue_led_contour)
+        cX_blue = M_blue["m10"] / M_blue["m00"]
+        cY_blue = M_blue["m01"] / M_blue["m00"]
+
+        M_green = cv2.moments(green_led_contour)
+        cX_green = M_green["m10"] / M_green["m00"]
+        cY_green = M_green["m01"] / M_green["m00"]
+
+        # Calculate the direction vector from the green to the blue LED
+
+        direction_vector = np.array([cX_blue - cX_green, cY_green - cY_blue])
 
         angle_radians = np.arctan2(direction_vector[1], direction_vector[0])
 
@@ -99,263 +99,99 @@ class DirectionFinder:
         if angle_degrees < 0:
             angle_degrees += 360
 
-        image = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        # Combine the blue and green LED contours to get the bounding box
 
-        # text = f"Angle: {angle_degrees:.2f} degrees"
-        # cv2.putText(
-        #     image,
-        #     text,
-        #     (int(cX_head) + 10, int(cY_head) + 10),
-        #     cv2.FONT_HERSHEY_SIMPLEX,
-        #     0.5,
-        #     (255, 0, 255),
-        #     2,
-        # )
+        x_blue, y_blue, w_blue, h_blue = cv2.boundingRect(blue_led_contour)
+        x_green, y_green, w_green, h_green = cv2.boundingRect(green_led_contour)
 
-        # cv2.line(
-        #     image,
-        #     (int(cX_base), int(cY_base)),
-        #     (int(cX_head), int(cY_head)),
-        #     (255, 0, 0),
-        #     2,
-        # )
+        # Combine the bounding boxes
 
-        # while True:
-        #     frame2 = self.stream.read()
-        #     cv2.imshow("Lines and Intersection", image)
-        #     cv2.imshow("Frame", frame2)
+        x = min(x_blue, x_green)
+        y = min(y_blue, y_green)
 
-        #     if cv2.waitKey(1) & 0xFF == ord("q"):
-        #         break
+        x_2 = max(x_blue + w_blue, x_green + w_green)
+        y_2 = max(y_blue + h_blue, y_green + h_green)
 
-        return int(angle_degrees)
+        # Get the center of the bounding box
+        center = (x + x_2) // 2, (y + y_2) // 2
 
-    def find_sphero(self):
+        return int(angle_degrees), center
+
+    """
+    Private methods
+    """
+
+    def _find_black_mat(self, frame):
         """
-        Find the location of a single (lit) sphero
+        Assume experiments take place on a black mat
 
-        Assumes:
-            Only one Sphero's LED matrix is on
+        Args:
+            frame: The frame to find the black mat in
 
         Returns:
-            The bounding box of the sphero in form [x, y, w, h]
+            The approximated contour of the black mat
         """
-        # Attempt this 10 times
-        box = None
 
-        for _ in range(0, 75):
-            frame = self.stream.read()
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-            if frame is None:
-                continue
+        _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+        contours, _ = cv2.findContours(
+            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
 
-            processed_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            processed_frame = cv2.GaussianBlur(processed_frame, (21, 21), 0)
-            processed_frame = cv2.threshold(
-                processed_frame, 130, 255, cv2.THRESH_BINARY
-            )[1]
-            processed_frame = cv2.erode(processed_frame, None, iterations=1)
-            processed_frame = cv2.dilate(processed_frame, None, iterations=12)
+        canvas_contour = max(contours, key=cv2.contourArea)
+        epsilon = 0.02 * cv2.arcLength(canvas_contour, True)
+        canvas_approx = cv2.approxPolyDP(canvas_contour, epsilon, True)
 
-            contours = self._find_all_contours(processed_frame)
+        return canvas_approx
 
-            if len(contours) == 0:
-                continue
+    def _find_colored_led(self, frame, canvas_approx, lower, upper):
+        """
+        Sphero lights front or back LED a specific color
 
-            contours = sorted(contours, key=lambda x: cv2.contourArea(x), reverse=True)
-            contour = contours[0]
+        Args:
+            frame: The frame to find the LED in
+            canvas_approx: The approximated contour of the black mat
+            lower: The lower bound of the color
+            upper: The upper bound of the color
+        """
 
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        mask = cv2.inRange(hsv, lower, upper)
+
+        # Erode and dilate
+        mask = cv2.dilate(mask, None, iterations=4)
+        mask = cv2.erode(mask, None, iterations=1)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Sort the contours by area
+
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+        # Find the largest contour within the black mat
+
+        for contour in contours:
             x, y, w, h = cv2.boundingRect(contour)
-            box = [x, y, w, h]
 
-            break
+            if (
+                cv2.pointPolygonTest(canvas_approx, (x + w // 2, y + h // 2), False)
+                == 1
+            ):
+                return contour
 
-        if box == None:
-            print("Failed to find a sphero")
-            while True:
-                cv2.imshow("Frame", frame)
-                cv2.imshow("Processed frame", processed_frame)
+        return None
 
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-
-            raise RuntimeError("Failed to find a sphero")
-
-        return box
-    
-    def debug_show_boxes(self, boxes):
-
-        while True:
-
-            frame = self.stream.read()
-
-            for box in boxes:
-                if box is None:
-                    continue
-
-                x, y, x_2, y_2 = box
-
-                w = x_2 - x
-                h = y_2 - y
-
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            
-            cv2.imshow("Frame", frame)
-
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-
-    """
-    Private member functions
-    """
-
-    def _get_frame(self):
+    def _get_settings_path(self):
         """
-        Get a frame from the video stream
-
-        Processes frame and smooths with history of previous frames
+        Gets the path to direction_camera.json
 
         Returns:
-            processed_frame (numpy.ndarray): Processed frame
-        """
-        frame = self.stream.read()
-
-        if frame is None:
-            print("Frame is None!")
-            return None
-
-        self.history.append(frame)
-
-        if len(self.history) > self.MAX_HISTORY_LEN:
-            self.history.pop(0)
-
-        smoothed_frame = frame.copy()
-
-        alpha = 1.0 / len(self.history)
-        for hist_frame in self.history:
-            cv2.addWeighted(
-                hist_frame, alpha, smoothed_frame, 1 - alpha, 0, smoothed_frame
-            )
-
-        processed_frame = cv2.cvtColor(smoothed_frame, cv2.COLOR_BGR2GRAY)
-        processed_frame = cv2.threshold(processed_frame, 60, 255, cv2.THRESH_BINARY)[1]
-
-        processed_frame = cv2.erode(processed_frame, None, iterations=1)
-        # processed_frame = cv2.dilate(processed_frame, None, iterations=1)
-
-        return processed_frame
-
-    def _approx_contour_as_poly(self, contour):
-        """
-        Approximates a contour as a polygon
-
-        Args:
-            contour (numpy.ndarray): Contour to approximate
-
-        Returns:
-            approx (numpy.ndarray): Approximated polygon
-        """
-        epsilon = 0.02 * cv2.arcLength(contour, True)
-        approx = cv2.approxPolyDP(contour, epsilon, True)
-
-        return approx
-
-    def _get_longest_line(self, approx):
-        """
-        Finds the longest line in a contour
-
-        Args:
-            contour (numpy.ndarray): Contour to find longest line in
-
-        Returns:
-            max_line (tuple): Longest line in contour
+            The path to direction_camera.json
         """
 
-        max_line = None
-        max_length = 0
+        current_file_path = os.path.abspath(__file__)
+        current_directory = os.path.dirname(current_file_path)
 
-        for i in range(len(approx)):
-            start = tuple(approx[i][0])
-            end = tuple(approx[(i + 1) % len(approx)][0])
-            length = np.linalg.norm(np.array(start) - np.array(end))
-
-            if length > max_length:
-                max_length = length
-                max_line = (start, end)
-
-        return max_line
-
-    def _get_longest_perpendicular_line(self, approx, line):
-        """
-        Finds the longest perpendicular line from the longest line to a point in the approximation
-
-        Args:
-            approx (numpy.ndarray): Contour to find point in
-            line (tuple): Line to find point from
-
-        Returns:
-            max_perpendicular_line (numpy.ndarray): Longest perpendicular line
-        """
-
-        (x1, y1), (x2, y2) = line
-
-        if (x2 - x1) == 0:
-            return None
-
-        m = (y2 - y1) / (x2 - x1)  # Slope
-        c = y1 - m * x1  # Intercept
-
-        max_perpendicular_distance = 0
-        max_perpendicular_point = None
-
-        for point in approx:
-            x, y = point[0]
-            perpendicular_distance = abs(((m * x + c) - y) / np.sqrt(m**2 + 1))
-
-            if perpendicular_distance > max_perpendicular_distance:
-                max_perpendicular_distance = perpendicular_distance
-                max_perpendicular_point = (x, y)
-
-        if max_perpendicular_point is None:
-            return
-
-        if m != 0:
-            perpendicular_m = -1 / m
-        else:
-            perpendicular_m = float("inf")  # Vertical line
-
-        perpendicular_c = (
-            max_perpendicular_point[1] - perpendicular_m * max_perpendicular_point[0]
-        )
-
-        # Find the intersection point between max_line and the perpendicular line
-        intersection_x = (perpendicular_c - c) / (m - perpendicular_m)
-        intersection_y = m * intersection_x + c
-
-        # Calculate the direction vector from the intersection point to max_perpendicular_point
-        longest_perpendicular_line = np.array(
-            [
-                max_perpendicular_point[0] - intersection_x,
-                intersection_y - max_perpendicular_point[1],
-            ]
-        )
-
-        return longest_perpendicular_line
-
-    """
-    STATIC
-    """
-
-    @staticmethod
-    def _find_all_contours(img):
-        """
-        Find all contours in an image
-
-        Args:
-            img: The image to find contours in
-
-        Returns:
-            A list of contours
-        """
-        contours, _ = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        return contours
+        return os.path.join(current_directory, "direction_camera.json")

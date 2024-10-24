@@ -1,15 +1,9 @@
 from threading import Thread
 import time
-import uvc
-from typing import NamedTuple
-import subprocess
-import os
-class CameraSpec(NamedTuple):
-    uid: str
-    width: int
-    height: int
-    fps: int
-    bandwidth_factor: float = 2.0
+import cv2
+import subprocess, os
+
+
 class VideoStream:
     """A CV2 VideoStream wrapper for threading.
 
@@ -17,36 +11,21 @@ class VideoStream:
         device: The device index of the camera to use.
     """
 
-    def __init__(self, device: CameraSpec):
-        self._stream = self._init_camera(device)
+    def __init__(self, device: int, settings: str):
+        """
+        Initialize the video stream and the camera settings.
 
-        # Apply camera settings
-        input_config = open("default_camera.json", "r")
+        Args:
+            device (int): The device index of the camera to use.
+            settings (str): The path to the camera settings file.
+        """
 
-        is_windows = os.name == 'nt'
-        res = subprocess.run(["uvcc", "--product", "2115", "import"], shell=is_windows, stdin=input_config, capture_output=True, text=True) 
-        input_config.close()
-        print(res.stdout)
-        print(res.stderr)
+        self._cam = cv2.VideoCapture(device)
 
-        self._frame = self._stream.get_frame_robust()
+        self._apply_uvc_settings(settings)
 
         self._stopped = False
-
-    def _init_camera(self, device: CameraSpec):
-        cam = uvc.Capture(device.uid)
-
-        cam.bandwidth_factor = device.bandwidth_factor
-
-        for modes in cam.available_modes:
-            if modes[:3] == (device.width, device.height, device.fps):
-                cam.frame_mode = modes
-                break
-        else:
-            cam.close()
-            raise RuntimeError("Camera does not support the specified mode")
-        
-        return cam
+        self._frame = None
 
     def start(self):
         """Start the thread to read frames from the video stream."""
@@ -60,23 +39,64 @@ class VideoStream:
         while True:
             if self._stopped:
                 return
-            
-            try:
-                self._frame = self._stream.get_frame_robust()
-            except:
-                continue
-    
+
+            ret, frame = self._cam.read()
+            if ret:
+                self._frame = frame
+
     def read(self):
         """Return the current frame."""
-        if self._frame.data_fully_received:
-            data = self._frame.bgr if hasattr(self._frame, "bgr") else self._frame.gray
-            return data
-    
+        return self._frame
+
     def stop(self):
         """Indicate that the thread should be stopped."""
         self._stopped = True
         # Wait a moment to avoid segfaults
         time.sleep(0.5)
         # Release the stream
-        self._stream.close()
+        self._cam.release()
+        # Wait a moment to avoid segfaults
+        time.sleep(1)
+
+    """
+    Private methods
+    """
+
+    def _apply_uvc_settings(self, settings: str):
+        """
+        Uses the uvcc tool to apply camera settings.
+
+        Args:
+            settings (str): The path to the camera settings file.
+        """
+
+        # Apply camera settings
+        input_config = open(settings, "r")
+
+        is_windows = os.name == "nt"
+
+        # Needs to be run twice to apply settings sometimes
+        res = subprocess.run(
+            ["uvcc", "--product", "2115", "import"],
+            shell=is_windows,
+            stdin=input_config,
+            capture_output=True,
+            text=True,
+        )
+
+        input_config.seek(0)
+
+        res = subprocess.run(
+            ["uvcc", "--product", "2115", "import"],
+            shell=is_windows,
+            stdin=input_config,
+            capture_output=True,
+            text=True,
+        )
+        input_config.close()
+
+        print(res.stdout)
+        print(res.stderr)
+
+        # Allow time for the camera to apply settings
         time.sleep(1)

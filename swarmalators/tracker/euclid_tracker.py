@@ -1,5 +1,6 @@
 import math
 
+
 class EuclideanDistTracker:
     def __init__(self):
         self.center_points = {}
@@ -10,15 +11,13 @@ class EuclideanDistTracker:
         Initalize the center points
 
         Args:
-            inital_positions (list): The inital positions of the objects in form [x, y, w, h]
+            inital_positions (list): The inital positions of the objects in form [x, y]
         """
         try:
             for position in inital_positions:
-                x, y, w, h = position
-                center_x = (x + x + w) // 2
-                center_y = (y + y + h) // 2
+                x, y = position
 
-                self.center_points[self.id_count] = (center_x, center_y)
+                self.center_points[self.id_count] = (x, y)
                 self.id_count += 1
         except Exception as e:
             print(inital_positions)
@@ -46,39 +45,36 @@ class EuclideanDistTracker:
                 closest_id = id
 
         return closest_id
-    
-    def update(self, objects_rect):
+
+    def update(self, object_coords):
         """
         Update the center points of the objects
 
         Args:
-            objects_rect (list): The bounding boxes of the objects in form [x, y, w, h]
+            objects_rect (list): The center points of the objects in form [x, y]
 
         Returns:
             list: The new center points in form [id, (x, y)]
         """
-        if len(objects_rect) != len(self.center_points):
+        if len(object_coords) != len(self.center_points):
             raise RuntimeError("Number of objects must match number of center points")
 
         new_center_points = {}
 
         ids = []
 
-        for rect in objects_rect:
-            x, y, w, h = rect
-            center_x = (x + x + w) // 2
-            center_y = (y + y + h) // 2
-
+        for coord in object_coords:
+            x, y = coord
             # Get the closet id to the center point
-            closest_id = self._get_closest_id(center_x, center_y)
+            closest_id = self._get_closest_id(x, y)
 
             ids.append(closest_id)
 
             # Assign the object id to the center point
-            new_center_points[closest_id] = (center_x, center_y)
+            new_center_points[closest_id] = (x, y)
 
         if len(new_center_points) != len(self.center_points):
-            print(len(objects_rect))
+            print(len(object_coords))
             print(new_center_points)
             print(self.center_points)
             raise RuntimeError("New center points length must match old center points")
@@ -88,3 +84,63 @@ class EuclideanDistTracker:
 
         # Return the new center points sorted by id
         return sorted(new_center_points.items(), key=lambda x: x[0])
+
+
+# import math
+# import numpy as np
+# from scipy.optimize import linear_sum_assignment
+
+
+# class EuclideanDistTracker:
+#     def __init__(self):
+#         self.center_points = {}
+#         self.id_count = 0
+
+#     def init(self, inital_positions):
+#         """
+#         Initalize the center points
+
+#         Args:
+#             inital_positions (list): The inital positions of the objects in form [x, y]
+#         """
+#         try:
+#             for position in inital_positions:
+#                 x, y = position
+
+#                 self.center_points[self.id_count] = (x, y)
+#                 self.id_count += 1
+#         except Exception as e:
+#             print(inital_positions)
+#             raise RuntimeError("Inital positions must be in form [x, y, w, h]")
+
+#     def update(self, object_coords):
+#         """
+#         Update the center points of the objects
+
+#         Args:
+#             objects_rect (list): The center points of the objects in form [x, y]
+
+#         Returns:
+#             list: The new center points in form [id, (x, y)]
+#         """
+#         if len(object_coords) != len(self.center_points):
+#             raise RuntimeError("Number of objects must match number of center points")
+
+#         old_positions = list(self.center_points.values())
+
+#         cost_matrix = np.linalg.norm(
+#             np.array(old_positions)[:, None] - np.array(object_coords), axis=2
+#         )
+
+#         row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+#         # Update the center points with the new matched coordinates
+#         new_center_points = {}
+#         for row, col in zip(row_ind, col_ind):
+#             new_center_points[row] = object_coords[col]
+
+#         # Update self.center_points with new values
+#         self.center_points = new_center_points
+
+#         # Return the new center points sorted by id
+#         return sorted(new_center_points.items(), key=lambda x: x[0])

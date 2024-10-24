@@ -1,3 +1,5 @@
 # swarmalators
 
-Code to run experiments for physical demonstration of the swarmaletor model.
+Controls a swarm of SpheroBolt robots implementing the swarmalator model.
+
+Version 2 implements running experiments in a brightly lit room.
