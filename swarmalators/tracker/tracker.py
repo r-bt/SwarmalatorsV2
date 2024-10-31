@@ -10,8 +10,8 @@ import atexit
 import os
 
 MAX_LEN = 1
-MAX_CONTOUR_AREA = 130
-MIN_CONTOUR_AREA = 40
+MAX_CONTOUR_AREA = 300
+MIN_CONTOUR_AREA = 5
 
 
 class SpheroTracker:
@@ -141,8 +141,8 @@ class SpheroTracker:
                     )
 
                 while True:
-                    cv2.imshow("Frame", display_frame)
-                    cv2.imshow("Frame 2", new_display_frame)
+                    cv2.imshow("New positions frame", display_frame)
+                    cv2.imshow("Old positions frame", new_display_frame)
                     cv2.imshow("Thresh", thresh)
 
                     if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -251,11 +251,16 @@ class SpheroTracker:
         canvas_approx = self._find_canvas(frame)
         cv2.polylines(display_frame, [canvas_approx], True, (0, 255, 0), 2)
 
+        # Crop to just the canvas
+        canvas_rect = cv2.boundingRect(canvas_approx)
+        x, y, w, h = canvas_rect
+        warped_canvas = frame[y : y + h, x : x + w]  # Crop the canvas area
+
         # Apply Otsu's binarization
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(warped_canvas, cv2.COLOR_BGR2GRAY)
         ret, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-        # Crop to just the canvas
+        # Apply a mask to the thresholded image
         mask = np.zeros_like(thresh)
         cv2.fillPoly(mask, [canvas_approx], (255, 255, 255))
         thresh = cv2.bitwise_and(thresh, mask)
@@ -274,8 +279,8 @@ class SpheroTracker:
             num_clusters=self._spheros,
         )
 
-        # Get the centers
-        dets = [(int(center[1] * 4), int(center[0] * 4)) for center in centers]
+        # Scale the centers back up
+        dets = [(int(center[1] * 4) + x, int(center[0] * 4) + y) for center in centers]
 
         # Draw the centers
         for det in dets:
@@ -374,6 +379,8 @@ class SpheroTracker:
             bounding_area = w * h  # Calculate the area of the bounding box
             if bounding_area > MIN_CONTOUR_AREA and bounding_area < MAX_CONTOUR_AREA:
                 cv2.drawContours(mask, [c], -1, 255, thickness=cv2.FILLED)
+            else:
+                print(bounding_area)
 
         cv2.imshow("Mask", mask)
 

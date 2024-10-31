@@ -40,7 +40,7 @@ class DirectionFinder:
         frame = self.stream.read()
 
         if frame is None:
-            print("Failed to read frame")
+            print("Error reading from camera")
             return None
 
         # First find the black mat
@@ -57,7 +57,15 @@ class DirectionFinder:
         )
 
         if front_led_contour is None:
-            print("Failed to find blue LED")
+            print("Can't find the front LED")
+
+            # Show the frame to the user
+            while True:
+                cv2.imshow("Frame", frame)
+
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+
             return None
 
         # Switch to the back blue LED
@@ -71,7 +79,7 @@ class DirectionFinder:
         frame = self.stream.read()
 
         if frame is None:
-            print("Failed to read frame")
+            print("Error reading from camera")
             return None
 
         back_led_contour = self._find_colored_led(
@@ -79,7 +87,7 @@ class DirectionFinder:
         )
 
         if back_led_contour is None:
-            print("Failed to find green LED")
+            print("Failed to find the back LED")
 
             while True:
                 cv2.imshow("Frame", frame)

@@ -45,6 +45,8 @@ SPHEROS_NEW = [
     "SB-6320",
 ]
 
+CAMERA_ID = 1
+
 
 def main():
     """
@@ -65,7 +67,7 @@ def main():
     swarmalator = Swarmalator(spheros, 1, 1, phase, natural_frequencies)
 
     # Run the experiments
-    run_experiments([SPHEROS_NEW], [PORT1], swarmalator)
+    run_experiments([SPHEROS_NEW], [PORT1], swarmalator, CAMERA_ID)
 
 
 if __name__ == "__main__":

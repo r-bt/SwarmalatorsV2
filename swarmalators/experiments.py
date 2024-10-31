@@ -9,7 +9,9 @@ import csv
 MAX_SPHEROS_PER_SWARMALATOR = 15
 
 
-def init_spheros(spheros: int, nrf_swarmalators: list[nRFSwarmalator]) -> list:
+def init_spheros(
+    spheros: int, nrf_swarmalators: list[nRFSwarmalator], camera_id
+) -> list:
     """
     Initialize the spheros by finding the direction of the spheros and then setting that to 0
 
@@ -26,7 +28,7 @@ def init_spheros(spheros: int, nrf_swarmalators: list[nRFSwarmalator]) -> list:
         The centers of the spheros
     """
     # Turn on the direction finder
-    finder = DirectionFinder(1)
+    finder = DirectionFinder(camera_id)
 
     # Wait for the camera to be ready
     time.sleep(1)
@@ -150,6 +152,7 @@ def run_experiments(
     sphero_collection: list[list[str]],
     ports: list[str],
     swarmalator,
+    camera_id,
     Kp=80,
     Ki=1.1,
     Kd=0,
@@ -182,7 +185,7 @@ def run_experiments(
     # Initalize all the Spheros
     print("Initializing Spheros")
 
-    centers = init_spheros(spheros, nrf_swarmalators)
+    centers = init_spheros(spheros, nrf_swarmalators, camera_id)
 
     # Switch Spheros to COLORS mode
     for nrf_swarmalator in nrf_swarmalators:
@@ -191,7 +194,7 @@ def run_experiments(
     # Start tracking
     tracker = Tracker()
 
-    tracker.start_tracking_objects(1, len(centers), centers)
+    tracker.start_tracking_objects(camera_id, len(centers), centers)
 
     # Get the inital positions
     got = False

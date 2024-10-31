@@ -74,9 +74,6 @@ class EuclideanDistTracker:
             new_center_points[closest_id] = (x, y)
 
         if len(new_center_points) != len(self.center_points):
-            print(len(object_coords))
-            print(new_center_points)
-            print(self.center_points)
             raise RuntimeError("New center points length must match old center points")
 
         # Add the new center points to the existing center points
