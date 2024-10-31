@@ -2,6 +2,8 @@ import cv2
 from ._video_stream import VideoStream
 import numpy as np
 import os
+from typing import Callable
+import time
 
 CONTOUR_DISTANCE_THRESHOLD = 350
 
@@ -25,7 +27,7 @@ class DirectionFinder:
     def stop(self):
         self.stream.stop()
 
-    def find_sphero_direction(self):
+    def find_sphero_direction(self, next_led: Callable):
         """
         Find the direction of a single sphero
 
@@ -50,24 +52,33 @@ class DirectionFinder:
         lower_blue = np.array([100, 150, 100])
         upper_blue = np.array([140, 255, 255])
 
-        blue_led_contour = self._find_colored_led(
+        front_led_contour = self._find_colored_led(
             frame, canvas_approx, lower_blue, upper_blue
         )
 
-        if blue_led_contour is None:
+        if front_led_contour is None:
             print("Failed to find blue LED")
             return None
 
-        # Find the green light emitted from the Sphero's back LED
+        # Switch to the back blue LED
 
-        lower_green = np.array([0, 100, 50])
-        upper_green = np.array([100, 255, 255])
+        next_led()
 
-        green_led_contour = self._find_colored_led(
-            frame, canvas_approx, lower_green, upper_green
+        time.sleep(0.5)
+
+        # Find the blue light emitted from the Sphero's back LED
+
+        frame = self.stream.read()
+
+        if frame is None:
+            print("Failed to read frame")
+            return None
+
+        back_led_contour = self._find_colored_led(
+            frame, canvas_approx, lower_blue, upper_blue
         )
 
-        if green_led_contour is None:
+        if back_led_contour is None:
             print("Failed to find green LED")
 
             while True:
@@ -80,17 +91,17 @@ class DirectionFinder:
 
         # Get center of the blue and green LED contours
 
-        M_blue = cv2.moments(blue_led_contour)
-        cX_blue = M_blue["m10"] / M_blue["m00"]
-        cY_blue = M_blue["m01"] / M_blue["m00"]
+        M_front = cv2.moments(front_led_contour)
+        cX_front = M_front["m10"] / M_front["m00"]
+        cY_front = M_front["m01"] / M_front["m00"]
 
-        M_green = cv2.moments(green_led_contour)
-        cX_green = M_green["m10"] / M_green["m00"]
-        cY_green = M_green["m01"] / M_green["m00"]
+        M_back = cv2.moments(back_led_contour)
+        cX_back = M_back["m10"] / M_back["m00"]
+        cY_back = M_back["m01"] / M_back["m00"]
 
         # Calculate the direction vector from the green to the blue LED
 
-        direction_vector = np.array([cX_blue - cX_green, cY_green - cY_blue])
+        direction_vector = np.array([cX_front - cX_back, cY_back - cY_front])
 
         angle_radians = np.arctan2(direction_vector[1], direction_vector[0])
 
@@ -101,16 +112,16 @@ class DirectionFinder:
 
         # Combine the blue and green LED contours to get the bounding box
 
-        x_blue, y_blue, w_blue, h_blue = cv2.boundingRect(blue_led_contour)
-        x_green, y_green, w_green, h_green = cv2.boundingRect(green_led_contour)
+        x_front, y_front, w_front, h_front = cv2.boundingRect(front_led_contour)
+        x_back, y_back, w_back, h_back = cv2.boundingRect(back_led_contour)
 
         # Combine the bounding boxes
 
-        x = min(x_blue, x_green)
-        y = min(y_blue, y_green)
+        x = min(x_front, x_back)
+        y = min(y_front, y_back)
 
-        x_2 = max(x_blue + w_blue, x_green + w_green)
-        y_2 = max(y_blue + h_blue, y_green + h_green)
+        x_2 = max(x_front + w_front, x_back + w_back)
+        y_2 = max(y_front + h_front, y_back + h_back)
 
         # Get the center of the bounding box
         center = (x + x_2) // 2, (y + y_2) // 2

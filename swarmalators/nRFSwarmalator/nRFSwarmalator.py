@@ -82,12 +82,12 @@ class nRFSwarmalator:
             raise RuntimeError("Mode must be MATCHING to use this function")
         self._send_command(bytearray([0x01]))
 
-    def matching_fill_matrix(self):
+    def matching_orientation(self):
         if self.mode != 1:
             raise RuntimeError("Mode must be MATCHING to use this function")
         self._send_command(bytearray([0x02]))
 
-    def matching_orientation(self):
+    def matching_orientation_back(self):
         if self.mode != 1:
             raise RuntimeError("Mode must be MATCHING to use this function")
         self._send_command(bytearray([0x03]))

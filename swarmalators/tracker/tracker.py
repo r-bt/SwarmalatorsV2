@@ -10,6 +10,8 @@ import atexit
 import os
 
 MAX_LEN = 1
+MAX_CONTOUR_AREA = 130
+MIN_CONTOUR_AREA = 40
 
 
 class SpheroTracker:
@@ -127,9 +129,11 @@ class SpheroTracker:
                 self.out.release()
                 print(e)
 
+                new_display_frame = frame.copy()
+
                 for point in self._euclid_tracker.center_points.values():
                     cv2.circle(
-                        display_frame,
+                        new_display_frame,
                         (int(point[0]), int(point[1])),
                         5,
                         (0, 0, 255),
@@ -138,6 +142,7 @@ class SpheroTracker:
 
                 while True:
                     cv2.imshow("Frame", display_frame)
+                    cv2.imshow("Frame 2", new_display_frame)
                     cv2.imshow("Thresh", thresh)
 
                     if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -257,7 +262,6 @@ class SpheroTracker:
 
         # Noise removal
         thresh = cv2.erode(thresh, None, iterations=2)
-        thresh = cv2.dilate(thresh, None, iterations=1)
 
         # Downsample the image first
         thresh = cv2.resize(
@@ -265,7 +269,7 @@ class SpheroTracker:
         )  # Downsample the image by 4x
 
         # Cluster white regions into 15 clusters
-        centers, labels = self._cluster_spheros(
+        centers, _ = self._cluster_spheros(
             thresh,
             num_clusters=self._spheros,
         )
@@ -358,8 +362,23 @@ class SpheroTracker:
             Labels: The labels of the clusters
         """
 
-        # Get white pixel coordinates
-        white_pixels = np.column_stack(np.where(thresh > 0))
+        # Find contours of white regions
+        contours, _ = cv2.findContours(
+            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        # Create a mask to filter out large contours (obstacles)
+        mask = np.zeros_like(thresh)
+        for c in contours:
+            _, _, w, h = cv2.boundingRect(c)
+            bounding_area = w * h  # Calculate the area of the bounding box
+            if bounding_area > MIN_CONTOUR_AREA and bounding_area < MAX_CONTOUR_AREA:
+                cv2.drawContours(mask, [c], -1, 255, thickness=cv2.FILLED)
+
+        cv2.imshow("Mask", mask)
+
+        # Get white pixel coordinates from the filtered mask
+        white_pixels = np.column_stack(np.where(mask > 0))
 
         # Perform k-means clustering
 

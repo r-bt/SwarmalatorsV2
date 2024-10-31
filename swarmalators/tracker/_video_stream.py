@@ -20,7 +20,12 @@ class VideoStream:
             settings (str): The path to the camera settings file.
         """
 
-        self._cam = cv2.VideoCapture(device)
+        is_windows = os.name == "nt"
+
+        if is_windows:
+            self._cam = cv2.VideoCapture(device, cv2.CAP_DSHOW)
+        else:
+            self._cam = cv2.VideoCapture(device)
 
         self._apply_uvc_settings(settings)
 

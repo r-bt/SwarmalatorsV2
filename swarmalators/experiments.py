@@ -58,7 +58,9 @@ def init_spheros(spheros: int, nrf_swarmalators: list[nRFSwarmalator]) -> list:
         """
 
         while True:
-            res = finder.find_sphero_direction()
+            res = finder.find_sphero_direction(
+                nrf_swarmalator.matching_orientation_back
+            )
 
             if res is None:
                 continue
