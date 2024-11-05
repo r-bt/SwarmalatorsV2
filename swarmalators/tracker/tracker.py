@@ -40,7 +40,7 @@ class SpheroTracker:
 
         settings_path = self._get_settings_path()
 
-        self._stream = VideoStream(device, settings_path).start()
+        self._stream = VideoStream(settings_path).start()
 
         # Get scale factors
         self._set_scale_factor()
@@ -260,9 +260,12 @@ class SpheroTracker:
         gray = cv2.cvtColor(warped_canvas, cv2.COLOR_BGR2GRAY)
         ret, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
+        # Scale canvas approx into the cropped frame
+        canvas_approx_scaled = canvas_approx - np.array([x, y])
+
         # Apply a mask to the thresholded image
         mask = np.zeros_like(thresh)
-        cv2.fillPoly(mask, [canvas_approx], (255, 255, 255))
+        cv2.fillPoly(mask, [canvas_approx_scaled], (255, 255, 255))
         thresh = cv2.bitwise_and(thresh, mask)
 
         # Noise removal
@@ -350,7 +353,7 @@ class SpheroTracker:
             thresh_2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
         canvas_contour = max(contours, key=cv2.contourArea)
-        epsilon = 0.02 * cv2.arcLength(canvas_contour, True)
+        epsilon = 0.005 * cv2.arcLength(canvas_contour, True)
         canvas_approx = cv2.approxPolyDP(canvas_contour, epsilon, True)
         return canvas_approx
 
@@ -379,8 +382,6 @@ class SpheroTracker:
             bounding_area = w * h  # Calculate the area of the bounding box
             if bounding_area > MIN_CONTOUR_AREA and bounding_area < MAX_CONTOUR_AREA:
                 cv2.drawContours(mask, [c], -1, 255, thickness=cv2.FILLED)
-            else:
-                print(bounding_area)
 
         cv2.imshow("Mask", mask)
 

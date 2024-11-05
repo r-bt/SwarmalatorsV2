@@ -19,7 +19,7 @@ class DirectionFinder:
         settings_path = self._get_settings_path()
 
         # Get camera on OpenCV
-        self.stream = VideoStream(device, settings_path).start()
+        self.stream = VideoStream(settings_path).start()
 
     def __del__(self):
         self.stream.stop()

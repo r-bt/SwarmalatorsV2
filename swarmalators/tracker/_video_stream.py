@@ -1,7 +1,36 @@
 from threading import Thread
 import time
-import cv2
-import subprocess, os
+import uvc, logging, json
+from typing import NamedTuple, Optional
+
+
+class CameraSpec(NamedTuple):
+    idProduct: int
+    idVendor: int
+    width: int
+    height: int
+    fps: int
+    bandwidth_factor: float = 2.0
+    controls: list = []
+
+
+UVCC_TO_PYUVC_MAPPING = {
+    "absolute_exposure_time": "Absolute Exposure Time",
+    "absolute_focus": "Absolute Focus",
+    "absolute_zoom": "Zoom absolute control",
+    "auto_exposure_mode": "Auto Exposure Mode",
+    "auto_exposure_priority": "Auto Exposure Priority",
+    "auto_focus": "Auto Focus",
+    "auto_white_balance_temperature": "White Balance temperature,Auto",
+    "backlight_compensation": "Backlight Compensation",
+    "brightness": "Brightness",
+    "contrast": "Contrast",
+    "gain": "Gain",
+    "power_line_frequency": "Power Line frequency",
+    "saturation": "Saturation",
+    "sharpness": "Sharpness",
+    "white_balance_temperature": "White Balance temperature",
+}
 
 
 class VideoStream:
@@ -11,7 +40,7 @@ class VideoStream:
         device: The device index of the camera to use.
     """
 
-    def __init__(self, device: int, settings: str):
+    def __init__(self, settings: str):
         """
         Initialize the video stream and the camera settings.
 
@@ -20,14 +49,7 @@ class VideoStream:
             settings (str): The path to the camera settings file.
         """
 
-        is_windows = os.name == "nt"
-
-        if is_windows:
-            self._cam = cv2.VideoCapture(device, cv2.CAP_DSHOW)
-        else:
-            self._cam = cv2.VideoCapture(device)
-
-        self._apply_uvc_settings(settings)
+        self._controls = self._load_camera_controls(settings)
 
         self._stopped = False
         self._frame = None
@@ -41,67 +63,111 @@ class VideoStream:
 
     def update(self):
         """Keep looping indefinitely until the thread is stopped."""
+        camera = CameraSpec(2115, 1133, 1920, 1080, 30, 2.0, self._controls)
+
+        cap = self._init_camera(camera)
+
+        if cap is None:
+            return
+
         while True:
             if self._stopped:
-                return
+                break
 
-            ret, frame = self._cam.read()
-            if ret:
-                self._frame = frame
+            self._frame = cap.get_frame_robust()
+
+        cap.close()
 
     def read(self):
         """Return the current frame."""
-        return self._frame
+        if self._frame is None:
+            return None
+
+        return self._frame.bgr
 
     def stop(self):
         """Indicate that the thread should be stopped."""
         self._stopped = True
         # Wait a moment to avoid segfaults
-        time.sleep(0.5)
-        # Release the stream
-        self._cam.release()
-        # Wait a moment to avoid segfaults
-        time.sleep(1)
+        time.sleep(1.5)
 
     """
     Private methods
     """
 
-    def _apply_uvc_settings(self, settings: str):
+    def _init_camera(self, camera: CameraSpec) -> Optional[uvc.Capture]:
         """
-        Uses the uvcc tool to apply camera settings.
+        Initialize a camera using the UVC library.
 
         Args:
-            settings (str): The path to the camera settings file.
+            camera (CameraSpec): The camera specifications.
         """
+        for device in uvc.device_list():
+            if (
+                device["idProduct"] == camera.idProduct
+                and device["idVendor"] == camera.idVendor
+            ):
+                capture = uvc.Capture(device["uid"])
 
-        # Apply camera settings
-        input_config = open(settings, "r")
+                # Set the bandwidth factor
+                capture.bandwidth_factor = camera.bandwidth_factor
 
-        is_windows = os.name == "nt"
+                # Select the correct mode
+                for mode in capture.available_modes:
+                    if mode[:3] == camera[2:5]:  # compare width, height, fps
+                        capture.frame_mode = mode
+                        break
+                else:
+                    logging.warning(
+                        f"None of the available modes matched: {capture.available_modes}"
+                    )
+                    capture.close()
+                    return
 
-        # Needs to be run twice to apply settings sometimes
-        res = subprocess.run(
-            ["uvcc", "--product", "2115", "import"],
-            shell=is_windows,
-            stdin=input_config,
-            capture_output=True,
-            text=True,
-        )
+                time.sleep(1)
 
-        input_config.seek(0)
+                # Set the camera controls
+                controls_dict = dict([(c.display_name, c) for c in capture.controls])
 
-        res = subprocess.run(
-            ["uvcc", "--product", "2115", "import"],
-            shell=is_windows,
-            stdin=input_config,
-            capture_output=True,
-            text=True,
-        )
-        input_config.close()
+                for control, value in camera.controls:
+                    if control in controls_dict:
+                        controls_dict[control].value = value
+                    else:
+                        logging.warning(f"Control not found: {control}")
 
-        print(res.stdout)
-        print(res.stderr)
+                return capture
+        else:
+            logging.warning(f"Camera not found: {camera}")
 
-        # Allow time for the camera to apply settings
-        time.sleep(1)
+    def _load_camera_controls(self, settings_path: str):
+        """
+        Loads the camera controls from a JSON file.
+        """
+        with open(settings_path, "r") as f:
+            data = json.load(f)
+
+            controls = []
+
+            for key, value in data.items():
+                if key in UVCC_TO_PYUVC_MAPPING:
+                    controls.append((UVCC_TO_PYUVC_MAPPING[key], value))
+                elif key == "absolute_pan_tilt":
+                    controls.append(("Pan control", value[0]))
+                    controls.append(("Tilt control", value[1]))
+
+            # Remove absolute_exposure_time if auto exposure mode is enabled
+            controls.sort(key=lambda x: x[0] != "Auto Exposure Mode")
+            if data["auto_exposure_mode"] == 8:
+                controls = [c for c in controls if c[0] != "Absolute Exposure Time"]
+
+            # Remove absolute_focus if auto focus is enabled
+            controls.sort(key=lambda x: x[0] != "Auto Focus")
+            if data["auto_focus"] == 1:
+                controls = [c for c in controls if c[0] != "Absolute Focus"]
+
+            # Remove white_balance_temperature if auto white balance temperature is enabled
+            controls.sort(key=lambda x: x[0] != "White Balance temperature,Auto")
+            if data["auto_white_balance_temperature"] == 1:
+                controls = [c for c in controls if c[0] != "White Balance temperature"]
+
+            return controls
