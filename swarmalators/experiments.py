@@ -153,9 +153,10 @@ def run_experiments(
     ports: list[str],
     swarmalator,
     camera_id,
-    Kp=80,
-    Ki=1.1,
+    Kp=60,
+    Ki=1,
     Kd=0,
+    targets=None,
 ):
     """
     Runs the swarmalator experiments
@@ -211,19 +212,27 @@ def run_experiments(
 
     # Setup PID controllers to control Sphero velocities
 
-    pid_controllers = [PID(Kp, Ki, Kd, setpoint=0) for _ in range(spheros)]
-    for pid in pid_controllers:
-        pid.output_limits = (0, 100)
+    pid_controllers = [(PID(Kp, Ki, Kd, setpoint=0), 0) for _ in range(spheros)]
+    for pid, _ in pid_controllers:
+        pid.output_limits = (-50, 50)
         pid.sample_time = 0.1
 
     # Create output files
     current_time = time.strftime("%Y%m%d%H%M%S")
     output_file = f"outputs/state_{current_time}.csv"
 
+    # Set the target if provided
+    target_index = 0
+    if targets is not None:
+        swarmalator.set_target(targets[0])
+
     # Run the experiment
 
     now = time.monotonic()
+    prev_pos_time = time.monotonic()
     prev_positions = None
+
+    start_time = time.monotonic()
 
     with open(output_file, "w") as f:
         writer = csv.writer(f, delimiter=",")
@@ -236,6 +245,15 @@ def run_experiments(
         )
 
         while True:
+            # if time.monotonic() - start_time < 2:
+            #     swarmalator._K = 1
+            #     swarmalator._J = 1
+            # elif time.monotonic() - start_time < 30:
+            #     swarmalator._J = -1
+            # elif swarmalator._target is None:
+            #     target_index = 0
+            #     swarmalator.set_target(targets[0])
+
             # try:
             # Update and get values from swarmalator model
             positions = tracker.get_positions()
@@ -249,21 +267,38 @@ def run_experiments(
             phase_state = swarmalator.get_phase_state()
             velocities = swarmalator.get_velocity()
 
+            # Update the target if provided
+            # Get the center of the swarm
+            center = np.mean(positions[:, :2], axis=0)
+
+            # If the center is close to the target, change the target
+
+            if swarmalator._target is not None:
+                print("Dist to target: ", np.linalg.norm(center - swarmalator._target))
+
+                if np.linalg.norm(center - swarmalator._target) < 0.1:
+                    target_index += 1
+                    target_index = target_index % len(targets)
+                    swarmalator.set_target(targets[target_index])
+
+                # tracker.mark()
+
             # Calculate the current velocity for all Spheros
             real_velocities = np.zeros(spheros)
             if prev_positions is not None:
                 traveled = np.linalg.norm(
                     positions[:, :2] - prev_positions[:, :2], axis=1
                 )
-                real_velocities = traveled / (time.monotonic() - now)
+                real_velocities = traveled / (time.monotonic() - prev_pos_time)
+
+            prev_pos_time = time.monotonic()
 
             prev_positions = positions
-            now = time.monotonic()
 
             # Update the PID controllers to get new velocities
 
             to_send_velocities = []
-            for i, (controller, velocity) in enumerate(
+            for i, ((controller, baseline), velocity) in enumerate(
                 zip(pid_controllers, velocities)
             ):
                 # Update the set point to the new desired velocity
@@ -271,6 +306,12 @@ def run_experiments(
 
                 # Update the PID controller
                 command = controller(real_velocities[i])
+
+                # Add to the baseline
+                baseline += command
+
+                if baseline < 0:
+                    baseline = 0
 
                 # Get the heading
                 heading = int(np.degrees(np.arctan2(velocity[1], velocity[0])))
@@ -282,7 +323,9 @@ def run_experiments(
                     heading += 360
 
                 # Store the speed and heading
-                to_send_velocities.append((int(command), heading))
+                to_send_velocities.append((int(baseline), heading))
+
+            print(to_send_velocities)
 
             colors = angles_to_rgb(phase_state)
 
@@ -303,9 +346,10 @@ def run_experiments(
 
             tracker.set_velocities([(v[0], -v[1]) for v in to_send_velocities])
 
-            print("Took: ", time.monotonic() - now)
-
             writer.writerow([time.monotonic(), *phase_state, *positions[:, :2]])
+
+            print("Total step time: ", time.monotonic() - now)
+            now = time.monotonic()
         # except Exception as e:
         #     print(e)
         # continue

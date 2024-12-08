@@ -2,6 +2,7 @@ from threading import Thread
 import time
 import uvc, logging, json
 from typing import NamedTuple, Optional
+import cv2
 
 
 class CameraSpec(NamedTuple):
@@ -74,7 +75,9 @@ class VideoStream:
             if self._stopped:
                 break
 
-            self._frame = cap.get_frame_robust()
+            frame = cap.get_frame_robust()
+
+            self._frame = frame
 
         cap.close()
 
@@ -83,7 +86,7 @@ class VideoStream:
         if self._frame is None:
             return None
 
-        return self._frame.bgr
+        return cv2.rotate(self._frame.bgr, cv2.ROTATE_180)
 
     def stop(self):
         """Indicate that the thread should be stopped."""

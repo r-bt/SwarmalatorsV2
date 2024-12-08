@@ -10,7 +10,7 @@ import atexit
 import os
 
 MAX_LEN = 1
-MAX_CONTOUR_AREA = 300
+MAX_CONTOUR_AREA = 700
 MIN_CONTOUR_AREA = 5
 
 
@@ -31,6 +31,7 @@ class SpheroTracker:
         lock,
         velocities,
         init_positions: list = [],
+        marks: list = [],
     ):
         self._spheros = spheros
         self._tracking = tracking
@@ -55,6 +56,8 @@ class SpheroTracker:
         self._euclid_tracker.init(init_positions)
 
         self._init_recording()
+
+        self._marks = marks
 
     """
     Private methods
@@ -93,6 +96,17 @@ class SpheroTracker:
 
     def _calibrate_camera(self):
         count = 0
+
+        while count < 100:
+            frame = self._stream.read()
+
+            if frame is None:
+                continue
+
+            count += 1
+
+        count = 0
+
         while count < 100:
             frame = self._stream.read()
 
@@ -221,6 +235,17 @@ class SpheroTracker:
                 cv2.LINE_AA,
             )
 
+            # Draw a line between mark history
+            if len(self._marks) > 1:
+                for i in range(1, len(self._marks)):
+                    cv2.line(
+                        display_frame,
+                        (int(self._marks[i - 1][0]), int(self._marks[i - 1][1])),
+                        (int(self._marks[i][0]), int(self._marks[i][1])),
+                        (0, 0, 255),
+                        2,
+                    )
+
             # Display the image
 
             cv2.imshow("Frame", display_frame)
@@ -256,9 +281,14 @@ class SpheroTracker:
         x, y, w, h = canvas_rect
         warped_canvas = frame[y : y + h, x : x + w]  # Crop the canvas area
 
+        # Filter out the bricks
+        # warped_canvas = self._filter_bricks(warped_canvas)
+
         # Apply Otsu's binarization
         gray = cv2.cvtColor(warped_canvas, cv2.COLOR_BGR2GRAY)
         ret, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+        # _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY)
 
         # Scale canvas approx into the cropped frame
         canvas_approx_scaled = canvas_approx - np.array([x, y])
@@ -269,7 +299,10 @@ class SpheroTracker:
         thresh = cv2.bitwise_and(thresh, mask)
 
         # Noise removal
-        thresh = cv2.erode(thresh, None, iterations=2)
+        thresh = cv2.erode(thresh, None, iterations=1)
+
+        # # Dilate to increase the size of the bricks
+        # thresh = cv2.dilate(thresh, None, iterations=2)
 
         # Downsample the image first
         thresh = cv2.resize(
@@ -277,10 +310,20 @@ class SpheroTracker:
         )  # Downsample the image by 4x
 
         # Cluster white regions into 15 clusters
-        centers, _ = self._cluster_spheros(
-            thresh,
-            num_clusters=self._spheros,
-        )
+        try:
+            centers, _ = self._cluster_spheros(
+                thresh,
+                num_clusters=self._spheros,
+            )
+        except Exception as e:
+            print("Error when clustering")
+            while True:
+                cv2.imshow("Thresh", thresh)
+                cv2.imshow("Display frame", display_frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+
+            raise e
 
         # Scale the centers back up
         dets = [(int(center[1] * 4) + x, int(center[0] * 4) + y) for center in centers]
@@ -348,7 +391,11 @@ class SpheroTracker:
             The canvas
         """
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        _, thresh_2 = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
+
+        _, thresh_2 = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY_INV)
+
+        cv2.imshow("Canvas thresh", thresh_2)
+
         contours, _ = cv2.findContours(
             thresh_2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
@@ -380,7 +427,7 @@ class SpheroTracker:
         for c in contours:
             _, _, w, h = cv2.boundingRect(c)
             bounding_area = w * h  # Calculate the area of the bounding box
-            if bounding_area > MIN_CONTOUR_AREA and bounding_area < MAX_CONTOUR_AREA:
+            if bounding_area > MIN_CONTOUR_AREA:
                 cv2.drawContours(mask, [c], -1, 255, thickness=cv2.FILLED)
 
         cv2.imshow("Mask", mask)
@@ -403,6 +450,44 @@ class SpheroTracker:
 
         return centers, labels
 
+    def _filter_bricks(self, frame):
+        """
+        Given a frame with bricks, filter out the bricks
+        """
+        # Convert to HSV
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        # Define the range for red color (adjust as needed)
+        lower_red1 = np.array([0, 40, 50])
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([170, 40, 50])
+        upper_red2 = np.array([180, 255, 255])
+
+        # Create masks for red
+        mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+        mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+        red_mask = mask1 | mask2
+
+        # Define kernel sizes
+        kernel1 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        kernel2 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        kernel3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+
+        for k in [kernel1, kernel2, kernel3]:
+            cleaned_mask = cv2.morphologyEx(red_mask, cv2.MORPH_CLOSE, k, iterations=2)
+
+        for k in [kernel2]:
+            cleaned_mask = cv2.morphologyEx(
+                cleaned_mask, cv2.MORPH_OPEN, k, iterations=2
+            )
+
+        # Remove the red color from the frame
+        result = frame.copy()
+
+        result[cleaned_mask == 255] = [0, 0, 0]
+
+        return result
+
     """
     Static methods
     """
@@ -416,13 +501,21 @@ class SpheroTracker:
         lock,
         velocities,
         init_positions: list = [],
+        marks: list = [],
     ):
         """
         Start tracking spheros
         """
         print("Starting to track!")
         sphero_tracker = SpheroTracker(
-            device, spheros, tracking, positions, lock, velocities, init_positions
+            device,
+            spheros,
+            tracking,
+            positions,
+            lock,
+            velocities,
+            init_positions,
+            marks,
         )
 
         sphero_tracker._track_objects()
@@ -442,6 +535,7 @@ class Tracker:
         self._positions = self._manager.list()
         self._pos_lock = self._manager.Lock()
         self._velocities = self._manager.list()
+        self._marks = self._manager.list()
 
     def start_tracking_objects(
         self, device: int, spheros: int, init_positions: list = []
@@ -461,10 +555,20 @@ class Tracker:
                 self._pos_lock,
                 self._velocities,
                 init_positions,
+                self._marks,
             ),
         )
         self._tracking_process.daemon = True
         self._tracking_process.start()
+
+    def mark(self):
+        """
+        Marks current position
+        """
+
+        center = np.mean(self._positions[-1][:, :2], axis=0)
+
+        self._marks.append(center)
 
     def get_positions(self):
         with self._pos_lock:

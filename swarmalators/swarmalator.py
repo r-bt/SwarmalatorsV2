@@ -109,6 +109,17 @@ class Swarmalator:
         self._phase += self._delta_phase * deltaT
         self._phase %= 2 * np.pi
 
+    def set_target(self, target):
+        """
+        Set the target position for the agents
+        """
+        n_target = np.array([target])
+        assert n_target.shape == (
+            1,
+            2,
+        ), "Target must be of shape (1, 2), is {}".format(n_target.shape)
+        self._target = n_target
+
     def _calculate_delta_phase(self, phase_sin_difference, distances):
         """
         Calculates the delta phase as:
