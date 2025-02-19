@@ -11,7 +11,7 @@ import os
 
 MAX_LEN = 1
 MAX_CONTOUR_AREA = 700
-MIN_CONTOUR_AREA = 5
+MIN_CONTOUR_AREA = 10
 
 
 class SpheroTracker:
@@ -97,7 +97,7 @@ class SpheroTracker:
     def _calibrate_camera(self):
         count = 0
 
-        while count < 100:
+        while count < 200:
             frame = self._stream.read()
 
             if frame is None:
@@ -282,13 +282,13 @@ class SpheroTracker:
         warped_canvas = frame[y : y + h, x : x + w]  # Crop the canvas area
 
         # Filter out the bricks
-        # warped_canvas = self._filter_bricks(warped_canvas)
+        warped_canvas = self._filter_bricks(warped_canvas)
 
         # Apply Otsu's binarization
         gray = cv2.cvtColor(warped_canvas, cv2.COLOR_BGR2GRAY)
-        ret, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        # ret, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-        # _, thresh = cv2.threshold(gray, 120, 255, cv2.THRESH_BINARY)
+        _, thresh = cv2.threshold(gray, 155, 255, cv2.THRESH_BINARY)
 
         # Scale canvas approx into the cropped frame
         canvas_approx_scaled = canvas_approx - np.array([x, y])

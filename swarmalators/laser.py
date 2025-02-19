@@ -59,67 +59,72 @@ class LaserTracker:
                     break
                 continue
 
-            display_frame = frame.copy()
-
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-            _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY)
-
-            thresh = cv2.erode(thresh, None, iterations=2)
-
-            thresh = cv2.dilate(thresh, None, iterations=1)
-
-            # Find the largest contour
-
-            contours, _ = cv2.findContours(
-                thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-            )
-
-            if len(contours) == 0:
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-                continue
-
-            largest_contour = max(contours, key=cv2.contourArea)
-
-            # Get the centroid
-
-            M = cv2.moments(largest_contour)
-
-            if M["m00"] == 0:
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-                continue
-
-            cx = int(M["m10"] / M["m00"])
-            cy = int(M["m01"] / M["m00"])
-
-            cv2.circle(display_frame, (cx, cy), 5, (0, 0, 255), -1)
-
-            # Add to the path
-
-            self._path.append((cx, cy))
-
-            # Smooth the path
-            smoothed_path = self._smooth_path(self._path)
-
-            # Draw the smoothed path
-            if len(smoothed_path) > 1:
-                for i in range(1, len(smoothed_path)):
-                    cv2.line(
-                        display_frame,
-                        (int(smoothed_path[i - 1][0]), int(smoothed_path[i - 1][1])),
-                        (int(smoothed_path[i][0]), int(smoothed_path[i][1])),
-                        (0, 0, 255),
-                        2,
-                    )
-
-            cv2.imshow("Frame", display_frame)
-
-            self.out.write(display_frame)
+            cv2.imshow("image", frame)
 
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
+
+            # display_frame = frame.copy()
+
+            # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY)
+
+            # thresh = cv2.erode(thresh, None, iterations=2)
+
+            # thresh = cv2.dilate(thresh, None, iterations=1)
+
+            # # Find the largest contour
+
+            # contours, _ = cv2.findContours(
+            #     thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            # )
+
+            # if len(contours) == 0:
+            #     if cv2.waitKey(1) & 0xFF == ord("q"):
+            #         break
+            #     continue
+
+            # largest_contour = max(contours, key=cv2.contourArea)
+
+            # # Get the centroid
+
+            # M = cv2.moments(largest_contour)
+
+            # if M["m00"] == 0:
+            #     if cv2.waitKey(1) & 0xFF == ord("q"):
+            #         break
+            #     continue
+
+            # cx = int(M["m10"] / M["m00"])
+            # cy = int(M["m01"] / M["m00"])
+
+            # cv2.circle(display_frame, (cx, cy), 5, (0, 0, 255), -1)
+
+            # # Add to the path
+
+            # self._path.append((cx, cy))
+
+            # # Smooth the path
+            # smoothed_path = self._smooth_path(self._path)
+
+            # # Draw the smoothed path
+            # if len(smoothed_path) > 1:
+            #     for i in range(1, len(smoothed_path)):
+            #         cv2.line(
+            #             display_frame,
+            #             (int(smoothed_path[i - 1][0]), int(smoothed_path[i - 1][1])),
+            #             (int(smoothed_path[i][0]), int(smoothed_path[i][1])),
+            #             (0, 0, 255),
+            #             2,
+            #         )
+
+            # cv2.imshow("Frame", display_frame)
+
+            # self.out.write(display_frame)
+
+            # if cv2.waitKey(1) & 0xFF == ord("q"):
+            #     break
 
     def get_path(self):
         """

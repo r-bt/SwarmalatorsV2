@@ -73,16 +73,16 @@ class Swarmalator:
         evenly_spaced_values = np.linspace(0, 2 * np.pi, self._agents, endpoint=False)
 
         # Shuffle the values
-        np.random.shuffle(evenly_spaced_values)
+        # np.random.shuffle(evenly_spaced_values)
 
         # Assign the shuffled values to self.phase_state[:, 1]
-        # self.phase_state[:, 1] = evenly_spaced_values
-        self.phase_state[:, 1] = np.ones(self._agents)
+        self.phase_state[:, 1] = evenly_spaced_values
+        # self.phase_state[:, 1] = np.ones(self._agents)
 
         # Keep track of time between updates
         self._updated = time.time()
 
-        self._target = target
+        self._target = np.array([target]) if target is not None else None
 
         self._delta_phase = np.zeros(self._agents)
 
@@ -279,7 +279,6 @@ class Swarmalator:
             2,
         ), "Target must be of shape (1, 2), is {}".format(n_target.shape)
         self._target = n_target
-        print(self._target)
 
     def update_phase(self, deltaT):
         # Apply the updated phase

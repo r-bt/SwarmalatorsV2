@@ -153,7 +153,7 @@ def run_experiments(
     ports: list[str],
     swarmalator,
     camera_id,
-    Kp=60,
+    Kp=70,
     Ki=1,
     Kd=0,
     targets=None,
@@ -214,7 +214,7 @@ def run_experiments(
 
     pid_controllers = [(PID(Kp, Ki, Kd, setpoint=0), 0) for _ in range(spheros)]
     for pid, _ in pid_controllers:
-        pid.output_limits = (-50, 50)
+        pid.output_limits = (0, 75)
         pid.sample_time = 0.1
 
     # Create output files
@@ -244,15 +244,26 @@ def run_experiments(
             ]
         )
 
+        reached_target = False
+        changed_phase_once = False
+
         while True:
-            # if time.monotonic() - start_time < 2:
-            #     swarmalator._K = 1
-            #     swarmalator._J = 1
-            # elif time.monotonic() - start_time < 30:
-            #     swarmalator._J = -1
-            # elif swarmalator._target is None:
-            #     target_index = 0
-            #     swarmalator.set_target(targets[0])
+
+            if time.monotonic() - start_time < 15:
+                # Start with circle
+                swarmalator._K = 0
+                swarmalator._J = 0
+            elif not reached_target:
+                # Move through wavepoints
+                swarmalator._K = 1
+                swarmalator.set_target([1.8, 0.05])
+            else:
+                if not changed_phase_once:
+                    swarmalator._phase = np.linspace(0, 2 * np.pi, spheros)
+                    changed_phase_once = True
+
+                swarmalator._K = -1
+                swarmalator._J = 1
 
             # try:
             # Update and get values from swarmalator model
@@ -262,7 +273,7 @@ def run_experiments(
                 continue
 
             swarmalator.update(positions[:, :2])
-            swarmalator.update_phase(time.monotonic() - now)
+            swarmalator.update_phase(time.monotonic() - prev_pos_time)
 
             phase_state = swarmalator.get_phase_state()
             velocities = swarmalator.get_velocity()
@@ -277,9 +288,14 @@ def run_experiments(
                 print("Dist to target: ", np.linalg.norm(center - swarmalator._target))
 
                 if np.linalg.norm(center - swarmalator._target) < 0.1:
-                    target_index += 1
-                    target_index = target_index % len(targets)
-                    swarmalator.set_target(targets[target_index])
+                    # target_index += 1
+                    # target_index = target_index % len(targets)
+                    # swarmalator.set_target(targets[target_index])
+                    reached_target = True
+
+                    swarmalator._target = None
+
+                    print("Reached target! New target is: ", swarmalator._target)
 
                 # tracker.mark()
 
@@ -323,7 +339,7 @@ def run_experiments(
                     heading += 360
 
                 # Store the speed and heading
-                to_send_velocities.append((int(baseline), heading))
+                to_send_velocities.append((int(command), heading))
 
             print(to_send_velocities)
 

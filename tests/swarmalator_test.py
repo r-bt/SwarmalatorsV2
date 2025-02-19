@@ -27,9 +27,12 @@ positions = np.random.uniform(low=-1, high=1, size=(agent_count, 2))
 natural_frequencies = np.zeros(agent_count)
 
 phase = np.linspace(0, 2 * np.pi, agent_count, endpoint=False)
-random.shuffle(phase)
+# phase = np.ones(agent_count) * np.pi / 2
+# random.shuffle(phase)
 
-swarm = sw.Swarmalator(agent_count, 1, 1, phase, natural_frequencies, chiral=False)
+# phase = np.ones(agent_count) * np.pi / 2
+
+swarm = sw.Swarmalator(agent_count, 0, 1, phase, natural_frequencies, chiral=False)
 
 
 def angles_to_rgb(angles_rad):
@@ -92,12 +95,13 @@ def plot_swarm():
 
         # If the center is close to the target, change the target
 
-        if np.linalg.norm(center - swarm._target) < 0.1:
-            index += 1
-            index = index % len(target_positions)
-            swarm.set_target(target_positions[index])
-            # Add to centers
-            centers.append(center)
+        if swarm._target is not None:
+            if np.linalg.norm(center - swarm._target) < 0.1:
+                index += 1
+                index = index % len(target_positions)
+                swarm.set_target(target_positions[index])
+                # Add to centers
+                centers.append(center)
 
         # Draw a line between center history
         for i in range(1, len(centers)):
@@ -146,6 +150,6 @@ target_positions = [(1, 1), (1, -1), (-1, -1), (-1, 1)]
 
 index = 0
 
-swarm.set_target(target_positions[index])
+# swarm.set_target(target_positions[index])
 
 plot_swarm()
