@@ -1,32 +1,55 @@
 import cv2
-
-video_path = "outputs/output_20241206093216.mp4"
-cap = cv2.VideoCapture(video_path)
-
-if not cap.isOpened():
-    print("Error: Could not open video.")
-    exit()
+import numpy as np
+from swarmalators.tracker.tracker import SpheroTracker
 
 
-# Process each frame
-while True:
-    ret, frame = cap.read()
-    if not ret:  # Break if no frames left
-        continue
+def process_single_image(image_path, spheros, init_positions=[]):
+    """
+    Process a single image using SpheroTracker.
 
-    # # Apply a blur effect
-    # blurred_frame = cv2.GaussianBlur(frame, (15, 15), 0)  # Adjust kernel size as needed
+    Args:
+        image_path (str): Path to the image file.
+        spheros (int): Number of spheros to detect.
+        init_positions (list): Initial positions of the spheros (optional).
+    """
+    # Load the image
+    frame = cv2.imread(image_path)
+    if frame is None:
+        print(f"Error: Could not load image from {image_path}")
+        return
 
-    # Display the blurred frame
-    cv2.imshow("Blurred Video", frame)
+    # Create a dummy event and other required parameters
+    tracking_event = None  # Not needed for single image processing
+    positions = []
+    lock = None  # Not needed for single image processing
+    velocities = []
 
-    # Save the frame as an image
-    cv2.imwrite("test_frames/frame.jpg", frame)
+    # Initialize the tracker
+    tracker = SpheroTracker(
+        device=0,  # Device is irrelevant for single image processing
+        spheros=spheros,
+        tracking=tracking_event,
+        positions=positions,
+        lock=lock,
+        velocities=velocities,
+        init_positions=init_positions,
+    )
 
-    # Exit on pressing 'q'
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+    # Process the image
+    dets, (thresh, display_frame) = tracker._detect_objects(frame)
 
-# Release resources
-cap.release()
-cv2.destroyAllWindows()
+    # Display the results
+    print(f"Detected spheros: {dets}")
+    cv2.imshow("Thresholded Image", thresh)
+    cv2.imshow("Detected Spheros", display_frame)
+
+    # Wait for user to close the windows
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+# Example usage
+if __name__ == "__main__":
+    image_path = "output.png"  # Replace with the path to your image
+    spheros = 14  # Replace with the number of spheros you expect
+    process_single_image(image_path, spheros)

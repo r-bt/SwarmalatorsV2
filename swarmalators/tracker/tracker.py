@@ -11,7 +11,7 @@ import os
 
 MAX_LEN = 1
 MAX_CONTOUR_AREA = 700
-MIN_CONTOUR_AREA = 10
+MIN_CONTOUR_AREA = 30
 
 
 class SpheroTracker:
@@ -41,21 +41,21 @@ class SpheroTracker:
 
         settings_path = self._get_settings_path()
 
-        self._stream = VideoStream(settings_path).start()
+        # self._stream = VideoStream(settings_path).start()
 
         # Get scale factors
-        self._set_scale_factor()
+        # self._set_scale_factor()
 
         # It takes some time for the camera to focus, etc
         print("Waiting for camera to calibrate")
-        self._calibrate_camera()
+        # self._calibrate_camera()
         print("Calibrated camera")
 
         # Setup and initalize tracker
         self._euclid_tracker = EuclideanDistTracker()
         self._euclid_tracker.init(init_positions)
 
-        self._init_recording()
+        # self._init_recording()
 
         self._marks = marks
 
@@ -276,13 +276,18 @@ class SpheroTracker:
         canvas_approx = self._find_canvas(frame)
         cv2.polylines(display_frame, [canvas_approx], True, (0, 255, 0), 2)
 
+        # Make everything outside the canvas black
+        mask = np.zeros_like(frame)
+        cv2.fillPoly(mask, [canvas_approx], (255, 255, 255))
+        masked_frame = cv2.bitwise_and(frame, mask)
+
         # Crop to just the canvas
         canvas_rect = cv2.boundingRect(canvas_approx)
         x, y, w, h = canvas_rect
-        warped_canvas = frame[y : y + h, x : x + w]  # Crop the canvas area
+        warped_canvas = masked_frame[y : y + h, x : x + w]  # Crop the canvas area
 
         # Filter out the bricks
-        warped_canvas = self._filter_bricks(warped_canvas)
+        # warped_canvas = self._filter_bricks(warped_canvas)
 
         # Apply Otsu's binarization
         gray = cv2.cvtColor(warped_canvas, cv2.COLOR_BGR2GRAY)
@@ -400,7 +405,7 @@ class SpheroTracker:
             thresh_2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
         canvas_contour = max(contours, key=cv2.contourArea)
-        epsilon = 0.005 * cv2.arcLength(canvas_contour, True)
+        epsilon = 0.001 * cv2.arcLength(canvas_contour, True)
         canvas_approx = cv2.approxPolyDP(canvas_contour, epsilon, True)
         return canvas_approx
 

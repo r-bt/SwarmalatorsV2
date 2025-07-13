@@ -9,7 +9,7 @@ sys.path.append(cur_dir + "/../")
 
 # from swarmalators import swarmalator as sw
 # from swarmalators import swarmalator as sw
-from swarmalators import swarmalator_loop as sw
+from swarmalators import swarmalator as sw
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -28,11 +28,11 @@ natural_frequencies = np.zeros(agent_count)
 
 phase = np.linspace(0, 2 * np.pi, agent_count, endpoint=False)
 # phase = np.ones(agent_count) * np.pi / 2
-# random.shuffle(phase)
+random.shuffle(phase)
 
 # phase = np.ones(agent_count) * np.pi / 2
 
-swarm = sw.Swarmalator(agent_count, 0, 1, phase, natural_frequencies, chiral=False)
+swarm = sw.Swarmalator(agent_count, -1, 0, phase, natural_frequencies, chiral=False)
 
 
 def angles_to_rgb(angles_rad):

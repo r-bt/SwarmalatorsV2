@@ -153,8 +153,8 @@ def run_experiments(
     ports: list[str],
     swarmalator,
     camera_id,
-    Kp=70,
-    Ki=1,
+    Kp=75,
+    Ki=2,
     Kd=0,
     targets=None,
 ):
@@ -244,26 +244,26 @@ def run_experiments(
             ]
         )
 
-        reached_target = False
-        changed_phase_once = False
+        # reached_target = False
+        # changed_phase_once = False
 
         while True:
 
-            if time.monotonic() - start_time < 15:
-                # Start with circle
-                swarmalator._K = 0
-                swarmalator._J = 0
-            elif not reached_target:
-                # Move through wavepoints
-                swarmalator._K = 1
-                swarmalator.set_target([1.8, 0.05])
-            else:
-                if not changed_phase_once:
-                    swarmalator._phase = np.linspace(0, 2 * np.pi, spheros)
-                    changed_phase_once = True
+            # if time.monotonic() - start_time < 15:
+            #     # Start with circle
+            #     swarmalator._K = 0
+            #     swarmalator._J = 0
+            # elif not reached_target:
+            #     # Move through wavepoints
+            #     swarmalator._K = 1
+            #     swarmalator.set_target([1.8, 0.05])
+            # else:
+            #     if not changed_phase_once:
+            #         swarmalator._phase = np.linspace(0, 2 * np.pi, spheros)
+            #         changed_phase_once = True
 
-                swarmalator._K = -1
-                swarmalator._J = 1
+            #     swarmalator._K = -1
+            #     swarmalator._J = 1
 
             # try:
             # Update and get values from swarmalator model
@@ -324,10 +324,10 @@ def run_experiments(
                 command = controller(real_velocities[i])
 
                 # Add to the baseline
-                baseline += command
+                # baseline += command
 
-                if baseline < 0:
-                    baseline = 0
+                # if baseline < 0:
+                # baseline = 0
 
                 # Get the heading
                 heading = int(np.degrees(np.arctan2(velocity[1], velocity[0])))

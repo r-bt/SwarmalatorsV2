@@ -1,4 +1,6 @@
 import math
+import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 
 class EuclideanDistTracker:
@@ -48,10 +50,11 @@ class EuclideanDistTracker:
 
     def update(self, object_coords):
         """
-        Update the center points of the objects
+        Update the center points of the objects using the Hungarian algorithm
+        to minimize the total distance.
 
         Args:
-            objects_rect (list): The center points of the objects in form [x, y]
+            object_coords (list): The center points of the objects in form [x, y]
 
         Returns:
             list: The new center points in form [id, (x, y)]
@@ -59,25 +62,23 @@ class EuclideanDistTracker:
         if len(object_coords) != len(self.center_points):
             raise RuntimeError("Number of objects must match number of center points")
 
+        # Create a cost matrix based on distances
+        cost_matrix = np.zeros((len(self.center_points), len(object_coords)))
+
+        for i, (id, point) in enumerate(self.center_points.items()):
+            for j, coord in enumerate(object_coords):
+                cost_matrix[i, j] = np.linalg.norm(np.array(point) - np.array(coord))
+
+        # Solve the assignment problem
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+
+        # Update the center points with the new matched coordinates
         new_center_points = {}
+        for row, col in zip(row_ind, col_ind):
+            id = list(self.center_points.keys())[row]
+            new_center_points[id] = tuple(object_coords[col])
 
-        ids = []
-
-        for coord in object_coords:
-            x, y = coord
-            # Get the closet id to the center point
-            closest_id = self._get_closest_id(x, y)
-
-            ids.append(closest_id)
-
-            # Assign the object id to the center point
-            new_center_points[closest_id] = (x, y)
-
-        if len(new_center_points) != len(self.center_points):
-            raise RuntimeError("New center points length must match old center points")
-
-        # Add the new center points to the existing center points
-        self.center_points = new_center_points.copy()
+        self.center_points = new_center_points
 
         # Return the new center points sorted by id
         return sorted(new_center_points.items(), key=lambda x: x[0])

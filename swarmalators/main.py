@@ -27,8 +27,9 @@ PORT2 = "/dev/tty.usbmodem0010500746993" if not is_windows else "COM9"
 # ]
 
 SPHEROS_NEW = [
+    # "SB-3026",
     "SB-31B8",
-    "SB-9CA8",
+    # "SB-9CA8",
     "SB-80C4",
     "SB-F509",
     "SB-5883",
@@ -55,11 +56,18 @@ def main():
     spheros = len(SPHEROS_NEW)
 
     # Setup the swarmalator model
-    natural_frequencies = np.zeros(spheros)
+    half_len = spheros // 2
+
+    natural_frequencies = np.ones(spheros)
+    # natural_frequencies[:half_len] = 1
+    # natural_frequencies[half_len:] = -1
 
     phase = np.linspace(0, 2 * np.pi, spheros, endpoint=False)
 
-    swarmalator = Swarmalator(spheros, 0, 0, phase, natural_frequencies, target=None)
+    # Shuffle the phase
+    phase = np.random.permutation(phase)
+
+    swarmalator = Swarmalator(spheros, 0, 1, phase, natural_frequencies, target=None)
 
     # Run the experiments
     run_experiments([SPHEROS_NEW], [PORT1], swarmalator, CAMERA_ID, targets=None)
